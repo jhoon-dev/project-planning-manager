@@ -1,6 +1,7 @@
 #pragma once
 #include <QSettings>
 #include <QString>
+#include <QStringList>
 
 namespace ppm {
 struct ApplicationStorage {
@@ -16,7 +17,7 @@ struct ApplicationStorage {
 // No directory creation, settings migration or fallback to another package's state.
 ApplicationStorage applicationStorage();
 QSettings applicationSettings();
-// Copies missing settings and validated recovery generations once; legacy state is retained.
-void migrateApplicationStorage();
+// Copies missing settings and recovery generations once. Returns recovery warnings for startup.
+QStringList migrateApplicationStorage();
 void migrateApplicationSettings(QSettings &legacy, QSettings &current);
 } // namespace ppm

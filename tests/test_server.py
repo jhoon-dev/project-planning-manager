@@ -345,10 +345,10 @@ class ServerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await self.call("GET", "/events?after=-1")).status, 400)
         self.assertEqual((await self.client.get("/assets/../../ppm_server/store.py")).status, 404)
 
-    async def make_job(self, request_id="schedule"):
+    async def post_job(self, request_id):
         snap = await self.snapshot()
         b = self.batch(snap, "Scheduled", request_id)
-        r = await self.call(
+        return await self.call(
             "POST",
             "/jobs",
             "editor",
@@ -359,8 +359,36 @@ class ServerTests(unittest.IsolatedAsyncioTestCase):
                 **b,
             },
         )
+
+    async def make_job(self, request_id="schedule"):
+        r = await self.post_job(request_id)
         self.assertEqual(r.status, 201, await r.text())
         return (await r.json())["id"]
+
+    async def test_job_quota_counts_only_active_schedules(self):
+        with self.store.connect(True) as db:
+            db.executemany(
+                "INSERT INTO jobs(id,owner,project_id,interval_seconds,next_at,expected_version,request,enabled,state) "
+                "VALUES(?,'editor','server-fixture',60,?,1,'{}',?,?)",
+                [
+                    (f"{state}-{index}", self.now, int(state == "ready"), state)
+                    for state, count in (("cancelled", 50), ("failed", 50), ("ready", 99))
+                    for index in range(count)
+                ],
+            )
+        job = await self.make_job("fills-last-slot")
+        limited = await self.post_job("exceeds-active-limit")
+        self.assertEqual(limited.status, 429, await limited.text())
+        self.assertEqual((await limited.json())["error"]["code"], "job_limit")
+
+        cancelled = await self.call("DELETE", f"/jobs/{job}", "editor")
+        self.assertEqual(cancelled.status, 200, await cancelled.text())
+        await self.make_job("uses-freed-slot")
+        listing = await self.call("GET", "/jobs", "editor")
+        self.assertEqual(listing.status, 200, await listing.text())
+        jobs = (await listing.json())["jobs"]
+        self.assertEqual(sum(row["enabled"] for row in jobs), 100)
+        self.assertEqual(sum(not row["enabled"] for row in jobs), 101)
 
     async def test_durable_job_repeats_coalesces_and_cancels(self):
         job = await self.make_job()

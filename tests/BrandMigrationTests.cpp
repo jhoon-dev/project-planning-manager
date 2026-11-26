@@ -6,6 +6,7 @@
 #include <QCryptographicHash>
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -89,8 +90,19 @@ int main(int argc, char **argv) {
         session->checkpoint(document.recoverySnapshot("2026-11-09T01:00:00Z"));
         oldStore.migrateTo(newRoot);
         check(newStore.scan().candidates.empty(), "active legacy session was copied");
+        session->checkpoint(document.recoverySnapshot("2026-11-09T01:05:00Z"));
         session.reset();
-        const auto currentCheckpoint = QDir(oldRoot).filePath(id + "/checkpoint-000000001.ppmrecovery");
+
+        const auto oversizedCheckpoint = QDir(oldRoot).filePath(id + "/checkpoint-000000001.jobrecovery");
+        check(QFile::rename(QDir(oldRoot).filePath(id + "/checkpoint-000000001.ppmrecovery"), oversizedCheckpoint),
+              "rename owned checkpoint for oversized legacy fixture");
+        constexpr qint64 oversizedBytes = 64 * 1024 * 1024 + 1;
+        QFile oversizedFile(oversizedCheckpoint);
+        check(oversizedFile.open(QIODevice::ReadWrite) && oversizedFile.resize(oversizedBytes),
+              "create oversized legacy fixture");
+        oversizedFile.close();
+
+        const auto currentCheckpoint = QDir(oldRoot).filePath(id + "/checkpoint-000000002.ppmrecovery");
         auto record = QJsonDocument::fromJson(read(currentCheckpoint)).object();
         record["format"] = "JOBS-RECOVERY";
         auto recoveryPayload = record["payload"].toObject();
@@ -102,25 +114,29 @@ int main(int argc, char **argv) {
         oldProject["baselines"] = oldBaselines;
         recoveryPayload["project"] = oldProject;
         record["payload"] = recoveryPayload;
-        const auto oldCheckpoint = QDir(oldRoot).filePath(id + "/checkpoint-000000001.jobrecovery");
+        const auto oldCheckpoint = QDir(oldRoot).filePath(id + "/checkpoint-000000002.jobrecovery");
         const auto oldBytes = signedFile(record);
         write(oldCheckpoint, oldBytes);
         check(QFile::remove(currentCheckpoint), "remove owned generated checkpoint");
-        const auto corruptCheckpoint = QDir(oldRoot).filePath(id + "/checkpoint-000000002.jobrecovery");
+        const auto corruptCheckpoint = QDir(oldRoot).filePath(id + "/checkpoint-000000003.jobrecovery");
         write(corruptCheckpoint, "corrupt generation");
-        oldStore.migrateTo(newRoot);
+        const auto warnings = oldStore.migrateTo(newRoot);
+        check(warnings.size() == 1 && warnings.front().contains(oversizedCheckpoint) &&
+                  QFileInfo(oversizedCheckpoint).size() == oversizedBytes,
+              "oversized legacy checkpoint was not reported and preserved");
         const auto scan = newStore.scan();
-        check(scan.candidates.size() == 2 && scan.candidates[0].valid && !scan.candidates[1].valid &&
+        check(scan.candidates.size() == 2 && scan.candidates[0].valid && scan.candidates[0].sequence == 2 &&
+                  !scan.candidates[1].valid && scan.candidates[1].sequence == 3 &&
                   read(oldCheckpoint) == oldBytes,
               "legacy checkpoint was lost or changed");
-        check(read(QDir(newRoot).filePath(id + "/checkpoint-000000002.ppmrecovery")) == "corrupt generation",
+        check(read(QDir(newRoot).filePath(id + "/checkpoint-000000003.ppmrecovery")) == "corrupt generation",
               "corrupt recovery generation was silently changed or discarded");
-        const auto migratedCheckpoint = QDir(newRoot).filePath(id + "/checkpoint-000000001.ppmrecovery");
+        const auto migratedCheckpoint = QDir(newRoot).filePath(id + "/checkpoint-000000002.ppmrecovery");
         check(QJsonDocument::fromJson(read(migratedCheckpoint)).object()["format"] == "PPM-RECOVERY",
               "recovery envelope was not migrated");
         const auto marker = QDir(newRoot).filePath("brand-migration.json");
         check(QFile::remove(marker), "simulate interruption before migration marker");
-        oldStore.migrateTo(newRoot);
+        check(oldStore.migrateTo(newRoot) == warnings, "resume lost the oversized checkpoint warning");
         const auto migratedBytes = read(migratedCheckpoint);
         check(QFile::remove(marker), "remove owned marker for conflict test");
         write(migratedCheckpoint, "unrelated current state");
@@ -138,10 +154,10 @@ int main(int argc, char **argv) {
         check(claim->snapshot.project == recoveryExpected, "recovery migration changed project inputs");
         claim.reset();
         newStore.discardSession(id);
-        oldStore.migrateTo(newRoot);
+        check(oldStore.migrateTo(newRoot).isEmpty(), "completed migration reported a previously skipped checkpoint");
         check(newStore.scan().candidates.empty(), "discarded migrated recovery resurrected on the next launch");
         std::cout << "PASS: legacy hash-first load, PPM save, immutable baseline/user text, active leases, recovery "
-                     "migration and no resurrection\n";
+                     "migration past oversized generation and no resurrection\n";
     } catch (const std::exception &error) {
         std::cerr << error.what() << '\n';
         return 1;

@@ -20,8 +20,9 @@ int main(int argc, char *argv[]) {
     QCoreApplication::setOrganizationName(ppm::storageOrganizationName);
     QGuiApplication::setDesktopFileName(ppm::productAppId);
     QApplication::setWindowIcon(ppm::applicationIcon());
+    QStringList recoveryWarnings;
     try {
-        ppm::migrateApplicationStorage();
+        recoveryWarnings = ppm::migrateApplicationStorage();
     } catch (const std::exception &error) {
         QMessageBox::warning(nullptr, "PPM 데이터 이관", QString::fromUtf8(error.what()));
         return 1;
@@ -32,6 +33,15 @@ int main(int argc, char *argv[]) {
     ppm::UpdateController updates(ppm::updateConfig());
     ppm::DesktopWorkspace workspace(store, recovery);
     workspace.setUpdates(&updates);
-    workspace.newWindow();
+    auto *window = workspace.newWindow();
+    if (!recoveryWarnings.isEmpty()) {
+        auto *warning = new QMessageBox(QMessageBox::Warning, "이전 복구본 이관",
+                                        "이전 복구본을 이관하는 중 문제가 발생했습니다. 원본은 보존했습니다.",
+                                        QMessageBox::Ok, window);
+        warning->setModal(false);
+        warning->setAttribute(Qt::WA_DeleteOnClose);
+        warning->setDetailedText(recoveryWarnings.join("\n\n"));
+        warning->show();
+    }
     return app.exec();
 }

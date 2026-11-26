@@ -1,6 +1,7 @@
 #pragma once
 #include "application/Recovery.h"
 #include <QString>
+#include <QStringList>
 #include <memory>
 #include <vector>
 #include <functional>
@@ -49,7 +50,7 @@ public:
     RecoveryScan scan() const;
     std::unique_ptr<RecoveryClaim> claim(const RecoveryCandidate &) const;
     void discardSession(const QString &sessionId) const;
-    void migrateTo(const QString &destination) const;
+    QStringList migrateTo(const QString &destination) const;
 
 private:
     QString root_;

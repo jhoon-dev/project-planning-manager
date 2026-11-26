@@ -17,7 +17,7 @@ cmake --build build-governance --target PPM PPM-Automation --parallel 4
 ./scripts/server.ps1 -Action serve
 ```
 
-브라우저의 `http://127.0.0.1:8765` 또는 PPM 작업공간 → **서버 인증·실시간 협업**을 연다. 관리자로 로그인해 native 프로젝트를 등록하고, 브라우저 관리 화면에서 계정과 프로젝트별 editor/viewer/reviewer 권한을 만든다. 데스크톱에서는 열린 로컬 프로젝트의 현재 스냅샷을 등록할 수 있다. 서버 등록은 native schema9~20을 지원하며 이전 파일은 데스크톱에서 이관 사본을 저장한 뒤 등록한다. 등록은 새 ID만 허용하며 기존 서버 원본을 native 업로드로 덮어쓰지 않는다. 내려받기는 명시적인 새 native 사본이고 로컬 원본을 자동 교체하지 않는다.
+브라우저의 `http://127.0.0.1:8765` 또는 PPM 작업공간 → **서버 인증·실시간 협업**을 연다. 관리자로 로그인해 native 프로젝트를 등록하고, 브라우저 관리 화면에서 계정과 프로젝트별 editor/viewer/reviewer 권한을 만든다. 데스크톱에서는 열린 로컬 프로젝트의 현재 스냅샷을 등록할 수 있다. 서버 등록은 schema 9부터 설치된 `PPM-Automation`의 읽기 상한까지 지원한다. 현재 소스의 상한은 [schema 84](../src/domain/NativeSchema.h)다. schema 1~8 파일은 데스크톱에서 이관 사본을 저장한 뒤 등록한다. 등록은 새 ID만 허용하며 기존 서버 원본을 native 업로드로 덮어쓰지 않는다. 내려받기는 명시적인 새 native 사본이고 로컬 원본을 자동 교체하지 않는다.
 
 Python을 직접 실행하려면 작업 디렉터리를 `server`로 설정한다.
 
@@ -62,6 +62,8 @@ POST /api/v1/projects/{project}/preview
 로그인에서 받은 token을 `Authorization: Bearer ...`로 보낸다. 미리보기 결과의 변경 전후를 검토하고 `POST /api/v1/projects/{project}/apply {"previewId":"..."}`를 보낸다. 성공 영수증에는 serverVersion/actor/committedAt이 추가된다. 저장된 영수증은 `GET /api/v1/projects/{project}/receipts/{request_id}`에서 본인 실행에 한해 조회한다.
 
 예약은 `POST /api/v1/jobs`에 위 request/expectedVersion과 projectId/intervalSeconds/startAt을 보낸다. `GET /api/v1/jobs`, `GET /api/v1/runs`, `DELETE /api/v1/jobs/{id}`로 조회/취소한다. 서버가 실행 중일 때 실행되며 OS 알람이나 Codex 자동화에 등록하지 않는다. 임의 셸/Python/외부 URL 실행은 지원하지 않는다.
+
+사용자당 활성 예약은 100건까지 만들 수 있다. 취소 또는 실패한 예약은 이력에 남고 활성 예약 자리는 다시 사용할 수 있다.
 
 ## 운영·복구
 

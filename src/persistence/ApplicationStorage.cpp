@@ -1,5 +1,6 @@
 #include "persistence/ApplicationStorage.h"
 #include "domain/Diagnostics.h"
+#include "formatting/QtDiagnosticText.h"
 #include "application/ProductIdentity.h"
 #include "persistence/JsonRecoveryStore.h"
 #include <QCoreApplication>
@@ -81,10 +82,10 @@ void migrateApplicationSettings(QSettings &legacy, QSettings &current) {
     if (current.status() != QSettings::NoError)
         throw AppError(ErrorCode::FILE_OPERATION_FAILED, {"PPM settings migration"});
 }
-void migrateApplicationStorage() {
+QStringList migrateApplicationStorage() {
     const auto storage = applicationStorage();
     if (storage.legacyStateDirectory.isEmpty())
-        return;
+        return {};
     if (storage.packaged()) {
         QSettings legacy(QDir(storage.legacyStateDirectory).filePath("settings.ini"), QSettings::IniFormat);
         auto current = applicationSettings();
@@ -94,6 +95,11 @@ void migrateApplicationStorage() {
         auto current = applicationSettings();
         migrateApplicationSettings(legacy, current);
     }
-    JsonRecoveryStore(QDir(storage.legacyStateDirectory).filePath("recovery")).migrateTo(storage.recoveryDirectory);
+    const auto legacyRecovery = QDir(storage.legacyStateDirectory).filePath("recovery");
+    try {
+        return JsonRecoveryStore(legacyRecovery).migrateTo(storage.recoveryDirectory);
+    } catch (const std::exception &error) {
+        return {legacyRecovery + "\n" + qErrorText(error)};
+    }
 }
 } // namespace ppm

@@ -591,7 +591,9 @@ class Service:
             ):
                 fail(409, "version_conflict", "Source changed during schedule validation")
             if (
-                db.execute("SELECT count(*) FROM jobs WHERE owner=?", (user["id"],)).fetchone()[0]
+                db.execute(
+                    "SELECT count(*) FROM jobs WHERE owner=? AND enabled=1", (user["id"],)
+                ).fetchone()[0]
                 >= 100
             ):
                 fail(429, "job_limit", "Schedule limit reached")

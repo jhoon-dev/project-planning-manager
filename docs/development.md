@@ -228,9 +228,9 @@ open build/PPM.app
 GitHub Actions는 Windows/macOS 빌드와 계산·파일·화면 테스트를 수행한다.
 macOS는 `macos-15`와 Xcode 16.4를 고정한다. 최신 SDK에서 Qt 6.8.3의 AGL 링크 실패를 확인했다.
 
-## 현재 `.ppm` 형식 (schema 9/10/11)
+## `.ppm` 파일 형식과 호환성
 
-UTF-8 JSON 한 파일에 `format: JOBS`, `schemaVersion`, `payload`, `sha256`을 보존한다. 작업 분류/저장된 보기 또는 이를 포함한 기준선/시나리오가 있으면 schema 10이고 그렇지 않으면 기존 schema 9 writer를 유지한다.
+UTF-8 JSON 한 파일에 `format`, `schemaVersion`, `payload`, `sha256`을 보존한다. 새로 저장하는 파일의 `format`은 `PPM`이며 이전 `JOBS` 파일도 읽는다. 현재 데스크톱은 schema 1~84를 읽으며 [코드의 읽기 상한](../src/domain/NativeSchema.h)을 따른다. 저장할 때는 schema 9부터 시작해 프로젝트 데이터에 필요한 최소 버전을 사용한다.
 payload에는 documentId, derivedFrom, revision, name, startDate, calendar, tasks, holidays,
 calculationProfile, wbsNodes, resources(rates·calendarId 포함), assignments, currency, costProfile, taskCosts, calendars, statusAt, baselines, progress, scenarios, costEntries가 들어간다. 각 작업은 UUID·이름·정수 근무분 또는 null·선행 ID 목록·wbsId를 갖는다. 계산 정책에 따라 관계 종류/지연(dependencyRules)·작업 달력(calendarId), 제약/마감, 작업 유형·입력 공수·공수 기준 여부·분할 중단을 함께 저장한다.
 WBS 노드는 ID·이름·parentId를 가지며 빈 부모/소속 ID는 프로젝트 루트다. 순환·누락 부모·누락 소속을 거절한다.
@@ -251,7 +251,7 @@ QLockFile sidecar는 전달 파일이 아니며 단일 writer를 위한 협조�
 잠금 실패 시 읽기 전용 열기와 다른 이름 저장을 제공한다.
 외부 비협조 writer의 검사 직후 변경, 네트워크/동기화 폴더 원자성, 정전 내구성은 보장하지 않는다.
 schema 1~8은 ID·revision·기존 입력과 계산 정책을 유지하여 읽고 누락된 새 필드에 null/빈 목록/기본값을 적용한다.
-schema 1~8 원본 덮어쓰기는 거절한다. 편집 후 저장하면 다른 이름 저장으로 데이터에 맞는 schema 9/10/11 사본을 만들며
+schema 1~8 원본 덮어쓰기는 거절한다. 편집 후 저장하면 다른 이름 저장으로 데이터에 맞는 schema 9 이상 사본을 만들며
 원본 bytes를 보존한다. 일반적인 다단계 이관·별도 백업 순환 정책은 아직 없다. 자동복구 체크포인트는 원본과 분리한 별도 레코드로 제공한다.
 미지원 버전은 원본을 수정하지 않는다.
 
@@ -285,7 +285,7 @@ GUI 수동 점검: 새로 만들기→작업 목록 입력→저장→작업명 
 
 ## 구현 이력과 당시 실행 증거 · 2026-10-26 이후
 
-아래 schema 번호와 테스트 개수는 각 증분 당시의 기록이다. 현재 파일 계약은 위의 schema 9/10/11 설명과 기능별 계약을 따른다.
+아래 schema 번호와 테스트 개수는 각 증분 당시의 기록이다. 현재 파일 계약은 위의 [파일 형식과 호환성](#ppm-파일-형식과-호환성)과 기능별 계약을 따른다.
 
 Windows x64, Qt 6.8.3, MinGW GCC 13.1.0, CMake 4.4.4, Ninja에서
 첫 파일 구현은 `scripts/dev.ps1 -TestOnly`로 Release 빌드 및 2/2 테스트에 통과했다.
@@ -320,7 +320,7 @@ macOS 및 MSVC 검증은 GitHub Actions에서 별도 추적한다.
 로컬 Release 전체 14/14, Windows 네이티브 보고서 UI와 출력 시험을 통과했다. openpyxl/pypdf로 ZIP/숫자/미정/출처, PDF 크기·본문·긴 행 700구간과 마지막 표식을 독립 대조했다. 엑셀 14개 시트와 PDF 페이지를 렌더링해 한글/줄바꿈/정렬을 확인했다. 독립 재열기 검사 스크립트는 `scripts/verify-report-fixtures.py build`이며 Python 의존성은 개발/CI에만 사용한다. Windows/macOS CI에서도 CTest 뒤 같은 파일 검증을 실행한다.
 
 자동 저장/복구·실행 취소 증분은 `undo_contract`, `recovery_crash_file`, `recovery_ui`를 더해 전체 17개로 확장했다. 실제 별도 프로세스 강제 종료와 flush 이후 commit 직전 강제 종료를 포함한다. 일반 입력은 새로운 revision으로 취소/재실행하고, 승인·제출 사실은 불변 이력 경계로 유지한다. 저장 입력과의 동일성(dirty)과 실제 저장된 revision을 구분해 보고서 출처도 보정했다.
-[자동 저장·복구·편집 이력 계약](recovery-undo.md)에 저장 위치/간격·사본 복구·잠금/세대·중단·한도·후속 검증을 기록한다. 이 증분 당시 `.ppm`는 schema 6이었으며 복구 envelope는 별도 schema 1이다. 현재 `.ppm`는 데이터에 따라 schema 9/10/11/12이며 복구 envelope schema 1은 내부 projectSchema 6~12를 지원한다. 회귀 시험용 저장 단계 observer는 실제 flush/commit 사이에서 중단·경쟁을 재현하며 제품 UI에서는 설정하지 않는다.
+[자동 저장·복구·편집 이력 계약](recovery-undo.md)에 저장 위치/간격·사본 복구·잠금/세대·중단·한도·후속 검증을 기록한다. 이 증분 당시 `.ppm`는 schema 6이었으며 복구 envelope는 별도 schema 1이다. 복구 envelope의 `projectSchema`는 안에 든 프로젝트 데이터의 버전을 기록한다. 현재 `.ppm`의 지원 범위는 [파일 형식과 호환성](#ppm-파일-형식과-호환성)을 따른다. 회귀 시험용 저장 단계 observer는 실제 flush/commit 사이에서 중단·경쟁을 재현하며 제품 UI에서는 설정하지 않는다.
 
 후속 PDM/작업 달력 증분은 `.ppm` schema 7을 사용하며 schema 1~6 원본과 기존 기준선을 보존한다. 복구 envelope schema 1의 내부 projectSchema 6/7을 지원한다. `native-pdm-taskcal-v1`은 civil 분 좌표와 작업별 근무분을 구분하며 `jobs-pdm-1.0`으로 계산한다. 자원/원가는 같은 근무 구간을 사용한다. 기존 `native-fs0-workminutes-v1` / `jobs-cpm-0.2` 결과는 유지한다. [PDM·작업 달력 계약](pdm-calendars.md), `pdm_calendar_contract`/`pdm_calendar_ui`와 독립 reader를 추가해 CTest 19개로 확장했다.
 

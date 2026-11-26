@@ -383,9 +383,9 @@ JsonRecoveryStore::JsonRecoveryStore(QString root, std::function<void()> hook)
 QString JsonRecoveryStore::defaultDirectory() {
     return applicationStorage().recoveryDirectory;
 }
-void JsonRecoveryStore::migrateTo(const QString &destination) const {
+QStringList JsonRecoveryStore::migrateTo(const QString &destination) const {
     if (!QFileInfo::exists(root_))
-        return;
+        return {};
     if (link(QFileInfo(root_)) || !QFileInfo(root_).isDir() || link(QFileInfo(destination)) ||
         QDir::cleanPath(QFileInfo(destination).absoluteFilePath()) == root_ || !QDir().mkpath(destination))
         throw AppError(ErrorCode::FILE_OPERATION_FAILED, {"recovery migration directory"});
@@ -411,6 +411,7 @@ void JsonRecoveryStore::migrateTo(const QString &destination) const {
     const auto directories = QDir(root_).entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot | QDir::System);
     if (directories.size() > 1000)
         throw AppError(ErrorCode::FILE_OPERATION_FAILED, {"recovery migration session limit"});
+    QStringList warnings;
     for (const auto &directory : directories) {
         if (!uuid(directory.fileName()) || imported.contains(directory.fileName()))
             continue;
@@ -420,27 +421,40 @@ void JsonRecoveryStore::migrateTo(const QString &destination) const {
             const auto published = target.filePath(directory.fileName());
             if (link(QFileInfo(published)) || (QFileInfo::exists(published) && !QFileInfo(published).isDir()))
                 throw AppError(ErrorCode::FILE_OPERATION_FAILED, {"recovery migration target link"});
+            const auto files = QDir(directory.absoluteFilePath()).entryInfoList(QDir::Files | QDir::System);
+            if (files.size() > 1000)
+                throw AppError(ErrorCode::FILE_OPERATION_FAILED, {"recovery migration generation limit"});
+            const auto legacyDirectory = directory.canonicalFilePath();
+            const auto migrationBytes = [&](const QFileInfo &file, std::uint64_t seq) -> std::optional<QByteArray> {
+                QByteArray bytes;
+                try {
+                    bytes = read(legacyDirectory, seq);
+                } catch (const AppError &error) {
+                    warnings.append(file.absoluteFilePath() + "\n" + qErrorText(error));
+                    return {};
+                }
+                try {
+                    const auto record = decode(bytes, directory.fileName(), seq);
+                    return encode(record.snapshot, record.session, record.sequence);
+                } catch (const std::exception &) {
+                    // Keep readable corrupt generations visible in the recovery list.
+                    return bytes;
+                }
+            };
             if (!QFileInfo::exists(published)) {
                 QTemporaryDir stage(target.filePath(".brand-migration-XXXXXX"));
                 if (!stage.isValid())
                     throw AppError(ErrorCode::FILE_OPERATION_FAILED, {"recovery migration stage"});
-                const auto files = QDir(directory.absoluteFilePath()).entryInfoList(QDir::Files | QDir::System);
-                if (files.size() > 1000)
-                    throw AppError(ErrorCode::FILE_OPERATION_FAILED, {"recovery migration generation limit"});
                 for (const auto &file : files) {
                     const auto seq = sequence(file.fileName());
                     if (!seq)
                         continue;
-                    auto bytes = read(directory.canonicalFilePath(), *seq);
-                    try {
-                        const auto record = decode(bytes, directory.fileName(), *seq);
-                        bytes = encode(record.snapshot, record.session, record.sequence);
-                    } catch (const std::exception &) {
-                        // Keep corrupt generations visible as corrupt; never silently discard them.
-                    }
+                    const auto bytes = migrationBytes(file, *seq);
+                    if (!bytes)
+                        continue;
                     QSaveFile output(QDir(stage.path()).filePath(name(*seq)));
                     output.setDirectWriteFallback(false);
-                    if (!output.open(QIODevice::WriteOnly) || output.write(bytes) != bytes.size() || !output.commit())
+                    if (!output.open(QIODevice::WriteOnly) || output.write(*bytes) != bytes->size() || !output.commit())
                         throw AppError(ErrorCode::FILE_OPERATION_FAILED, {"recovery migration write"});
                 }
                 if (!QDir().rename(stage.path(), published))
@@ -449,20 +463,13 @@ void JsonRecoveryStore::migrateTo(const QString &destination) const {
             } else {
                 auto targetLease =
                     std::shared_ptr<RecoverySession>(new RecoverySession(target.path(), directory.fileName(), false));
-                const auto files = QDir(directory.absoluteFilePath()).entryInfoList(QDir::Files | QDir::System);
-                if (files.size() > 1000)
-                    throw AppError(ErrorCode::FILE_OPERATION_FAILED, {"recovery migration generation limit"});
+                const auto publishedDirectory = QFileInfo(published).canonicalFilePath();
                 for (const auto &file : files) {
                     const auto seq = sequence(file.fileName());
                     if (!seq)
                         continue;
-                    auto expected = read(directory.canonicalFilePath(), *seq);
-                    try {
-                        const auto record = decode(expected, directory.fileName(), *seq);
-                        expected = encode(record.snapshot, record.session, record.sequence);
-                    } catch (const std::exception &) {
-                    }
-                    if (read(QFileInfo(published).canonicalFilePath(), *seq) != expected)
+                    const auto expected = migrationBytes(file, *seq);
+                    if (expected && read(publishedDirectory, *seq) != *expected)
                         throw AppError(ErrorCode::FILE_OPERATION_FAILED, {"recovery migration target conflict"});
                 }
             }
@@ -476,6 +483,7 @@ void JsonRecoveryStore::migrateTo(const QString &destination) const {
             qWarning("An active legacy recovery session will be migrated on a later launch");
         }
     }
+    return warnings;
 }
 std::shared_ptr<RecoverySession> JsonRecoveryStore::newSession() const {
     return std::shared_ptr<RecoverySession>(
