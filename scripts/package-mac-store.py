@@ -152,6 +152,23 @@ def signing_keychain_search(keychain):
         run(['security', 'list-keychains', '-d', 'user', '-s', *previous])
 
 
+def sign_nested_macho(sign, path, helper_entitlements_path):
+    executable = bool(re.search(r'\bEXECUTE\b', run(['otool', '-hv', path])))
+    command = [*sign]
+    if executable:
+        command += ['--entitlements', helper_entitlements_path]
+    run([*command, path])
+    if executable:
+        output = run(['codesign', '-d', '--entitlements', ':-', path])
+        start = output.index('<?xml')
+        end = output.index('</plist>', start) + len('</plist>')
+        effective = plistlib.loads(output[start:end].encode())
+        expected = plistlib.loads(helper_entitlements_path.read_bytes())
+        if effective != expected:
+            raise ValueError('Nested executable must inherit only the app sandbox: ' + str(path))
+    return executable
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--preparation', type=Path, required=True)
@@ -218,14 +235,20 @@ def main():
                                  'com.apple.developer.team-identifier': TEAM})
             entitlements_path = work / 'entitlements.plist'
             entitlements_path.write_bytes(plistlib.dumps(entitlements))
+            helper_entitlements_path = work / 'helper-entitlements.plist'
+            helper_entitlements_path.write_bytes(plistlib.dumps({
+                'com.apple.security.app-sandbox': True,
+                'com.apple.security.inherit': True,
+            }))
             sign = ['codesign', '--force', '--sign', app_identity, '--keychain', keychain, '--timestamp']
             magic = {bytes.fromhex(h) for h in ('feedface', 'cefaedfe', 'feedfacf', 'cffaedfe', 'cafebabe', 'bebafeca', 'cafebabf', 'bfbafeca')}
+            sandbox_helpers_verified = 0
             for path in sorted(app.rglob('*'), key=lambda p: len(p.parts), reverse=True):
                 if path.is_file() and not path.is_symlink():
                     with path.open('rb') as stream:
                         macho = stream.read(4) in magic
-                    if macho:
-                        run([*sign, path])
+                    if macho and path != app / 'Contents/MacOS/PPM':
+                        sandbox_helpers_verified += sign_nested_macho(sign, path, helper_entitlements_path)
                 elif path.is_dir() and not path.is_symlink() and path.suffix == '.framework':
                     run([*sign, path])
             reader = app / 'Contents/Resources/mpp-reader'
@@ -262,6 +285,7 @@ def main():
             result = {'source_revision': revision, 'bundle_id': BUNDLE, 'version': info['CFBundleShortVersionString'],
                       'build': info['CFBundleVersion'], 'signed': True, 'sandbox_container_verified': True,
                       'payload_permissions_verified': True,
+                      'sandbox_helpers_verified': sandbox_helpers_verified,
                       'external_folder_selection_verified': external_verified,
                       'external_verification_source': 'manual QA attestation' if external_verified else None,
                       'uploaded': args.upload, 'review_submitted': False,

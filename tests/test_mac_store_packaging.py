@@ -6,6 +6,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import plistlib
 import stat
 import tempfile
 import unittest
@@ -27,6 +28,39 @@ class MacStorePackagingTests(unittest.TestCase):
                              'com.apple.developer.team-identifier': mac_store.TEAM},
             'DeveloperCertificates': [b'distribution certificate'],
         }
+
+    def test_embedded_executables_inherit_only_the_parent_sandbox(self):
+        expected = {'com.apple.security.app-sandbox': True, 'com.apple.security.inherit': True}
+        with tempfile.TemporaryDirectory() as directory:
+            entitlements = Path(directory) / 'helper.plist'
+            entitlements.write_bytes(plistlib.dumps(expected))
+            for header in ('MH_MAGIC_64 ARM64 ALL EXECUTE',
+                           'java (architecture arm64):\nMH_MAGIC_64 ARM64 ALL EXECUTE\n'
+                           'java (architecture x86_64):\nMH_MAGIC_64 X86_64 ALL EXECUTE'):
+                with self.subTest(header=header), patch.object(mac_store, 'run', side_effect=[
+                        header, '', 'Executable=java\n' + plistlib.dumps(expected).decode()]) as command:
+                    self.assertTrue(mac_store.sign_nested_macho(['codesign', '--sign', 'identity'],
+                                                               Path('runtime/bin/java'), entitlements))
+                    self.assertIn(call(['codesign', '--sign', 'identity', '--entitlements', entitlements,
+                                        Path('runtime/bin/java')]), command.call_args_list)
+
+    def test_embedded_library_keeps_library_signing_without_helper_entitlements(self):
+        with patch.object(mac_store, 'run', side_effect=['MH_MAGIC_64 ARM64 ALL DYLIB', '']) as command:
+            self.assertFalse(mac_store.sign_nested_macho(['codesign', '--sign', 'identity'],
+                                                        Path('libjvm.dylib'), Path('helper.plist')))
+            self.assertEqual(command.call_args_list[-1], call(['codesign', '--sign', 'identity', Path('libjvm.dylib')]))
+
+    def test_helper_signature_with_missing_or_extra_permissions_is_rejected(self):
+        expected = {'com.apple.security.app-sandbox': True, 'com.apple.security.inherit': True}
+        with tempfile.TemporaryDirectory() as directory:
+            entitlements = Path(directory) / 'helper.plist'
+            entitlements.write_bytes(plistlib.dumps(expected))
+            for effective in ({'com.apple.security.app-sandbox': True},
+                              {**expected, 'com.apple.security.network.client': True}):
+                with self.subTest(effective=effective), patch.object(mac_store, 'run', side_effect=[
+                        'MH_MAGIC_64 ARM64 ALL EXECUTE', '', plistlib.dumps(effective).decode()]):
+                    with self.assertRaisesRegex(ValueError, 'inherit only'):
+                        mac_store.sign_nested_macho(['codesign'], Path('runtime/bin/java'), entitlements)
 
     @unittest.skipIf(os.name == 'nt', 'POSIX permissions are verified on the Mac signing runner')
     def test_embedded_profile_is_public_but_private_signing_material_stays_private(self):

@@ -8,6 +8,8 @@
 
 `Mac App Store preparation`은 Qt 6.8.3 공식 qtbase archive와 고정 SHA-256을 확인하고 `-feature-appstore-compliant` universal arm64/x86_64 Qt를 사용한다. 네이티브 회귀·실제 Mac 화면·별도 서명된 sandbox 검증 앱을 실행한 다음 미서명 `PPM.app` 개발 번들을 만든다. build_number 입력은 Apple CFBundleVersion이며 업로드마다 증가시킨다. 앱 버전은 0.2.0이다.
 
+MPP 읽기에 필요한 고정 버전 Java 21과 오프라인 reader를 빌드·회귀 전에 준비하고 앱에 포함한다. 서명 단계는 내장 Mach-O 실행 파일에 `com.apple.security.app-sandbox`와 `com.apple.security.inherit`만 부여한 뒤 실제 서명 결과를 대조한다. 라이브러리에는 보조 도구용 entitlement를 넣지 않는다.
+
 `Mac App Store signing and upload`는 **같은 커밋의 성공한 preparation run ID**를 받는다. 임시 키체인에서 앱·설치기 배포 인증서를 선택하고, 정확한 팀·Bundle ID·유효기간·인증서가 일치하는 App Store 프로파일을 검사한다. 내장 Mach-O/framework부터 앱 순서로 서명하고 최종 entitlement·pkg 서명·Apple altool validation을 확인한다. output은 서명된 앱 zip, pkg와 비밀 값을 제외한 상태·검증 결과다. 빌드 업로드는 App Store 심사 제출과 별개다.
 
 기본값은 업로드하지 않는다. 외부 폴더 승인·취소·재실행 bookmark 접근을 실제 Mac에서 확인한 경우에만 `external_folders_verified`를 선택한다. 정식 배포 목적의 upload는 이 확인 없이 요청하면 실패한다. 컨테이너 자동 검증 성공을 외부 폴더 검증으로 취급하지 않는다.
