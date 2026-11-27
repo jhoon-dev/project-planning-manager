@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
     inputs:
       preparation_run:
-        description: Successful preparation for this commit or its direct signing-tooling-only parent
+        description: Successful preparation with identical app inputs; linear signing-tooling-only corrections allowed
         required: true
         type: string
       external_folders_verified:
@@ -32,7 +32,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          fetch-depth: 2
+          fetch-depth: 0
       - uses: actions/setup-python@v7
         with:
           python-version: '3.12'

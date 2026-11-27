@@ -37,6 +37,10 @@ class MacStorePackagingTests(unittest.TestCase):
         with patch.object(mac_store, 'run', side_effect=[f'{signing} {source}',
                                                         '\n'.join(sorted(mac_store.SIGNING_TOOLING_PATHS))]):
             mac_store.validate_release_revision(source, signing)
+        middle = 'c' * 40
+        with patch.object(mac_store, 'run', side_effect=[f'{signing} {middle}\n{middle} {source}',
+                                                        '\n'.join(sorted(mac_store.SIGNING_TOOLING_PATHS))]):
+            mac_store.validate_release_revision(source, signing)
         for changed in ('src/main.cpp', 'CMakeLists.txt', 'packaging/mpp-reader/engine-lock.json',
                         'resources/i18n/manifest.json', '.github/workflows/mac-store-preparation.yml'):
             with self.subTest(changed=changed), patch.object(mac_store, 'run', side_effect=[
@@ -48,7 +52,7 @@ class MacStorePackagingTests(unittest.TestCase):
         source, signing = 'a' * 40, 'b' * 40
         for history in (f'{signing} ' + 'c' * 40, f'{signing} {source} ' + 'c' * 40):
             with self.subTest(history=history), patch.object(mac_store, 'run', return_value=history):
-                with self.assertRaisesRegex(ValueError, 'direct signing-tooling-only parent'):
+                with self.assertRaisesRegex(ValueError, 'linear signing-tooling-only ancestor'):
                     mac_store.validate_release_revision(source, signing)
         with self.assertRaisesRegex(ValueError, 'full source'):
             mac_store.validate_release_revision('HEAD', signing)
@@ -273,6 +277,32 @@ class MacStorePackagingTests(unittest.TestCase):
                 z.writestr('PPM.app/Contents/Frameworks/QtCore.framework/Versions/A/QtCore', b'library')
                 z.writestr(link, 'A')
             mac_store.validate_archive(archive, root)
+
+    def test_archive_accepts_internal_java_legal_parent_links(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            archive = root / 'java.zip'
+            link = zipfile.ZipInfo('PPM.app/Contents/Resources/runtime/legal/java.xml/LICENSE')
+            link.create_system = 3
+            link.external_attr = (stat.S_IFLNK | 0o777) << 16
+            with zipfile.ZipFile(archive, 'w') as z:
+                z.writestr('PPM.app/Contents/Resources/runtime/legal/java.base/LICENSE', b'license')
+                z.writestr(link, '../java.base/LICENSE')
+            mac_store.validate_archive(archive, root)
+
+    def test_archive_rejects_symlink_chain_traversal_and_cycles(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            for targets in (('../..', 'a/../outside'), ('b', 'a')):
+                archive = root / 'chain.zip'
+                with zipfile.ZipFile(archive, 'w') as z:
+                    for name, target in zip(('a', 'b'), targets):
+                        link = zipfile.ZipInfo('PPM.app/Contents/deep/' + name)
+                        link.create_system = 3
+                        link.external_attr = (stat.S_IFLNK | 0o777) << 16
+                        z.writestr(link, target)
+                with self.assertRaises(ValueError):
+                    mac_store.validate_archive(archive, root)
 
 
 if __name__ == '__main__':

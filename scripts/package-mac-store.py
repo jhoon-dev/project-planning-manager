@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 import hashlib
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import plistlib
 import re
 import secrets
@@ -36,9 +36,15 @@ def validate_release_revision(source_revision, signing_revision):
         raise ValueError('Expected full source and signing commit IDs')
     if source_revision == signing_revision:
         return
-    parents = run(['git', 'rev-list', '--parents', '-n', '1', signing_revision]).split()
-    if parents != [signing_revision, source_revision]:
-        raise ValueError('Preparation must match this commit or its direct signing-tooling-only parent')
+    history = run(['git', 'rev-list', '--parents', source_revision + '..' + signing_revision]).splitlines()
+    expected = signing_revision
+    for line in history:
+        parents = line.split()
+        if len(parents) != 2 or parents[0] != expected:
+            raise ValueError('Preparation must be a linear signing-tooling-only ancestor')
+        expected = parents[1]
+    if not history or expected != source_revision:
+        raise ValueError('Preparation must be a linear signing-tooling-only ancestor')
     changed = set(run(['git', 'diff', '--no-renames', '--name-only', source_revision, signing_revision]).splitlines())
     if not changed or not changed <= SIGNING_TOOLING_PATHS:
         raise ValueError('Prepared application inputs changed; run preparation again')
@@ -95,15 +101,47 @@ def validate_profile(profile, now=None):
 
 def validate_archive(path, destination):
     with zipfile.ZipFile(path) as archive:
+        names, links = set(), {}
         for item in archive.infolist():
+            relative = PurePosixPath(item.filename)
             target = (destination / item.filename).resolve()
-            if not target.is_relative_to(destination) or Path(item.filename).is_absolute():
+            if (not relative.parts or relative.parts[0] not in {'PPM.app', '__MACOSX'} or
+                    '..' in relative.parts or '\\' in item.filename or relative.is_absolute() or
+                    not target.is_relative_to(destination) or Path(item.filename).is_absolute()):
                 raise ValueError('App archive escapes extraction directory')
+            name = relative.as_posix()
+            if name in names:
+                raise ValueError('App archive contains duplicate paths')
+            names.add(name)
             if stat.S_ISLNK(item.external_attr >> 16):
                 link = archive.read(item).decode('utf-8')
-                if (Path(link).is_absolute() or '..' in Path(link).parts or
-                        not (target.parent / link).resolve().is_relative_to(destination)):
-                    raise ValueError('App archive symlink escapes extraction directory')
+                if (relative.parts[0] != 'PPM.app' or len(relative.parts) == 1 or
+                        PurePosixPath(link).is_absolute() or '\\' in link or not link):
+                    raise ValueError('App archive symlink escapes application: ' + name)
+                links[name] = PurePosixPath(link).parts
+        # Resolve archive links component by component, including links in parent directories.
+        # A lexical normpath alone would miss traversal through a directory symlink.
+        for name in names:
+            if PurePosixPath(name).parts[0] != 'PPM.app':
+                continue
+            pending, resolved, visited = list(PurePosixPath(name).parts), [], set()
+            while pending:
+                part = pending.pop(0)
+                if part == '..':
+                    if len(resolved) <= 1:
+                        raise ValueError('App archive symlink escapes application: ' + name)
+                    resolved.pop()
+                    continue
+                if part == '.':
+                    continue
+                resolved.append(part)
+                current = '/'.join(resolved)
+                if current in links:
+                    if current in visited:
+                        raise ValueError('App archive contains a symlink cycle: ' + name)
+                    visited.add(current)
+                    resolved.pop()
+                    pending = list(links[current]) + pending
 
 
 def run(command, *, cwd=None, environment=None):
