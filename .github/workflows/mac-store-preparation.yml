@@ -51,6 +51,19 @@ jobs:
         with:
           path: ${{ runner.temp }}/qt-appstore-6.8.3
           key: qtbase-6.8.3-appstore-universal-v1-${{ runner.os }}-${{ steps.sdk.outputs.key }}
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21.0.11+10.0.LTS'
+      - name: Cache locked MPP reader inputs
+        uses: actions/cache@v6
+        with:
+          path: .cache/mpp-reader-inputs
+          key: mpp-reader-inputs-${{ hashFiles('packaging/mpp-reader/engine-lock.json') }}
+      - name: Prepare offline MPP reader before build and tests
+        run: |
+          python -m unittest discover -s tests -p test_prepare_ci_mpp_reader.py -v
+          python scripts/prepare-ci-mpp-reader.py --output build-mac-store/mpp-reader
       - name: Configure and build PPM against the App Store Qt runtime
         shell: bash
         env:
