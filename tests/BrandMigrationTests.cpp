@@ -126,8 +126,7 @@ int main(int argc, char **argv) {
               "oversized legacy checkpoint was not reported and preserved");
         const auto scan = newStore.scan();
         check(scan.candidates.size() == 2 && scan.candidates[0].valid && scan.candidates[0].sequence == 2 &&
-                  !scan.candidates[1].valid && scan.candidates[1].sequence == 3 &&
-                  read(oldCheckpoint) == oldBytes,
+                  !scan.candidates[1].valid && scan.candidates[1].sequence == 3 && read(oldCheckpoint) == oldBytes,
               "legacy checkpoint was lost or changed");
         check(read(QDir(newRoot).filePath(id + "/checkpoint-000000003.ppmrecovery")) == "corrupt generation",
               "corrupt recovery generation was silently changed or discarded");
