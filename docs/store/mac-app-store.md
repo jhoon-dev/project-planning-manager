@@ -1,5 +1,7 @@
 # Mac App Store 배포 구성
 
+2026-11-27: `0.2.0 (9)`를 App Store Connect에 업로드하고 기존 내부 그룹 `PPM Mac QA`에 배포해 **테스트 중** 상태를 확인했다. 한국어 테스트 안내도 저장했다. 앱 소스는 `cec4d94470331158969d17802f27fa99c08c65c7`, 서명 도구는 `5e3007660e6622d11c499319525e94bf51ef1e58`이다. [준비 작업](https://github.com/jhoon-dev/project-planning-manager/actions/runs/45930753078)의 회귀 269개와 샌드박스·MPP 파일 검증, [서명·업로드 작업](https://github.com/jhoon-dev/project-planning-manager/actions/runs/45936587980)의 패키징 계약 19개·보조 실행 파일 3개의 상속 서명·payload 권한·Apple 유효성 검사를 통과했다. pkg SHA-256은 `5b1e312bfae09357cf08e7b398f4bae77654ba478a5098aec830a6a4172658e0`이다. 실제 Mac의 외부 폴더 승인·취소·재실행 검증은 TestFlight에서 진행하며, 정식 App Review는 제출하지 않았다.
+
 전용 앱은 **Project Planning Manager**, Apple 앱 ID `6829387727`, Bundle ID `app.toolmoa.ppm`, 팀 `V6445K474Q`다. 무료·지원 가능한 모든 국가에 출시한다. 다른 앱의 기록·서명 자료를 임의로 가져오지 않는다.
 
 개발자는 `jhoon-dev`, 브랜드는 `Toolmoa`, 표시 이름은 `Project Planning Manager`다. Apple 팀·인증서의 법적 소유자 이름과 개발자 핸들은 구분한다.

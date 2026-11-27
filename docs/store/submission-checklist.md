@@ -1,5 +1,7 @@
 # Microsoft Store 제출 준비와 남은 절차
 
+2026-11-27: 소스 `e8c7162f605aeae620f28b7458df0947dc7816ec`의 Windows x64 `1.0.8.0`을 제출 5(`1152921505702520419`)로 올렸으며, 인증 후 `InTheStore`·공개 완료를 확인했다. 기존 제품 `9N0PRBD80X6B`와 identity를 유지했다. 패키지 SHA-256은 `2c0fc5d01a218259ef5fdd4766ea6a27c5acabeb1b26e6ef8b18bfcd8edcbfa3`이다. MakeAppx·독립 파일 해시·EXE/MSIX 버전 일치, 복구 이관 회귀와 [MSIX 설치·업그레이드 CI](https://github.com/jhoon-dev/project-planning-manager/actions/runs/45927859039), [Windows/macOS 전체 CI](https://github.com/jhoon-dev/project-planning-manager/actions/runs/45927859038), 정적 분석·파서/런타임 검증을 통과했다. 로컬 WACK은 별도로 실행하지 않았다.
+
 2026-11-02. Windows 사용자 배포는 **Microsoft Store가 서명·제공하는 MSIX만** 사용한다. EXE/NSIS 설치기와 unsigned 개발 패키지는 배포하지 않는다. 무료·지원 가능한 모든 국가가 출시 방침이다.
 
 기존 제품 `9NDHXXVR8F2P`와 제출은 사용자 승인 후 삭제했다. 2026-11-02 Partner Center에서 새 `Project Planning Manager` 제품 `9N0PRBD80X6B`의 첫 제출(1.0.4.0)이 Microsoft Store에 게시된 것을 확인했다. 현재 identity는 `jhoon-dev.ProjectPlanningManager`, Publisher `CN=C488F7ED-2611-417D-B3ED-C39E81B7590E`, PublisherDisplayName `JIN HOON KIM`이다. 이후 업데이트는 이 제품과 identity를 유지한다. 이전 제품의 identity를 재사용하지 않는다.

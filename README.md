@@ -39,4 +39,4 @@ Windows/macOS · C++20 / Qt 6.8 · 개발 중. 기본 작업은 계정·서버 �
 - [상세 기능·파일 형식·배포·구현 기록](docs/implementation-overview.md)
 
 개발자 **jhoon-dev** · 브랜드 **Toolmoa** · App ID **`app.toolmoa.ppm`**.
-Windows 배포는 Microsoft Store MSIX, macOS 배포는 Mac App Store를 대상으로 준비 중이며 스토어 제출·승인은 미완료입니다.
+Windows는 [Microsoft Store](https://apps.microsoft.com/detail/9N0PRBD80X6B)에서 배포합니다(현재 1.0.8.0). macOS는 TestFlight 내부 테스트 빌드 0.2.0(9)를 제공하며, 정식 Mac App Store 심사는 아직 제출하지 않았습니다. [Mac 배포·검증 절차](docs/store/mac-app-store.md)를 참고하세요.
