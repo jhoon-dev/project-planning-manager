@@ -25,6 +25,23 @@ REQUIRED = ('MAC_APP_STORE_CERTIFICATES_P12_BASE64', 'MAC_APP_STORE_CERTIFICATES
             'MAC_APP_STORE_PROVISION_PROFILE_BASE64', 'APP_STORE_CONNECT_API_KEY_ID',
             'APP_STORE_CONNECT_API_ISSUER_ID', 'APP_STORE_CONNECT_API_PRIVATE_KEY')
 LOCAL_SECRETS = []
+SIGNING_TOOLING_PATHS = {
+    'scripts/package-mac-store.py', 'tests/test_mac_store_packaging.py',
+    '.github/workflows/mac-store-release.yml', 'docs/store/mac-app-store.md',
+}
+
+
+def validate_release_revision(source_revision, signing_revision):
+    if not all(re.fullmatch(r'[0-9a-f]{40}', value) for value in (source_revision, signing_revision)):
+        raise ValueError('Expected full source and signing commit IDs')
+    if source_revision == signing_revision:
+        return
+    parents = run(['git', 'rev-list', '--parents', '-n', '1', signing_revision]).split()
+    if parents != [signing_revision, source_revision]:
+        raise ValueError('Preparation must match this commit or its direct signing-tooling-only parent')
+    changed = set(run(['git', 'diff', '--no-renames', '--name-only', source_revision, signing_revision]).splitlines())
+    if not changed or not changed <= SIGNING_TOOLING_PATHS:
+        raise ValueError('Prepared application inputs changed; run preparation again')
 
 
 def preparation_inputs(preparation):
@@ -158,6 +175,8 @@ def sign_nested_macho(sign, path, helper_entitlements_path):
     executable = bool(re.search(r'\bEXECUTE\b', run(['otool', '-hv', path])))
     command = [*sign]
     if executable:
+        # Directory installation can otherwise turn a Mach-O helper into a data-only 0644 file.
+        path.chmod(path.stat().st_mode | 0o111)
         command += ['--entitlements', helper_entitlements_path]
     run([*command, path])
     if executable:
@@ -190,8 +209,10 @@ def main():
     preparation = args.preparation.resolve()
     status, archive = preparation_inputs(preparation)
     revision = run(['git', 'rev-parse', 'HEAD']).strip()
+    source_revision = os.environ.get('PPM_PREPARATION_SOURCE_REVISION', revision)
+    validate_release_revision(source_revision, revision)
     external_verified = os.environ.get('MAC_SANDBOX_EXTERNAL_VERIFIED') == 'true'
-    validate_preparation(status, revision, args.upload, external_verified, args.testflight)
+    validate_preparation(status, source_revision, args.upload, external_verified, args.testflight)
     output = ROOT / 'dist/mac-app-store'
     output.mkdir(parents=True, exist_ok=True)
     temporary_root = Path(os.environ['RUNNER_TEMP']).resolve()
@@ -284,7 +305,8 @@ def main():
                     'xcrun', 'altool', '--upload-package', package, '-t', 'osx', '--apple-id', '6829387727', '--bundle-id', BUNDLE,
                     '--bundle-short-version-string', info['CFBundleShortVersionString'],
                     '--bundle-version', info['CFBundleVersion'], *authentication], cwd=work, environment=api_environment))
-            result = {'source_revision': revision, 'bundle_id': BUNDLE, 'version': info['CFBundleShortVersionString'],
+            result = {'source_revision': source_revision, 'signing_revision': revision,
+                      'bundle_id': BUNDLE, 'version': info['CFBundleShortVersionString'],
                       'build': info['CFBundleVersion'], 'signed': True, 'sandbox_container_verified': True,
                       'payload_permissions_verified': True,
                       'sandbox_helpers_verified': sandbox_helpers_verified,

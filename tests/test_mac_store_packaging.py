@@ -29,20 +29,50 @@ class MacStorePackagingTests(unittest.TestCase):
             'DeveloperCertificates': [b'distribution certificate'],
         }
 
+    def test_signing_revision_reuses_only_a_direct_parent_with_no_application_changes(self):
+        source, signing = 'a' * 40, 'b' * 40
+        with patch.object(mac_store, 'run') as command:
+            mac_store.validate_release_revision(source, source)
+            command.assert_not_called()
+        with patch.object(mac_store, 'run', side_effect=[f'{signing} {source}',
+                                                        '\n'.join(sorted(mac_store.SIGNING_TOOLING_PATHS))]):
+            mac_store.validate_release_revision(source, signing)
+        for changed in ('src/main.cpp', 'CMakeLists.txt', 'packaging/mpp-reader/engine-lock.json',
+                        'resources/i18n/manifest.json', '.github/workflows/mac-store-preparation.yml'):
+            with self.subTest(changed=changed), patch.object(mac_store, 'run', side_effect=[
+                    f'{signing} {source}', 'scripts/package-mac-store.py\n' + changed]):
+                with self.assertRaisesRegex(ValueError, 'inputs changed'):
+                    mac_store.validate_release_revision(source, signing)
+
+    def test_signing_revision_rejects_other_history_and_invalid_commit_ids(self):
+        source, signing = 'a' * 40, 'b' * 40
+        for history in (f'{signing} ' + 'c' * 40, f'{signing} {source} ' + 'c' * 40):
+            with self.subTest(history=history), patch.object(mac_store, 'run', return_value=history):
+                with self.assertRaisesRegex(ValueError, 'direct signing-tooling-only parent'):
+                    mac_store.validate_release_revision(source, signing)
+        with self.assertRaisesRegex(ValueError, 'full source'):
+            mac_store.validate_release_revision('HEAD', signing)
+
     def test_embedded_executables_inherit_only_the_parent_sandbox(self):
         expected = {'com.apple.security.app-sandbox': True, 'com.apple.security.inherit': True}
         with tempfile.TemporaryDirectory() as directory:
             entitlements = Path(directory) / 'helper.plist'
             entitlements.write_bytes(plistlib.dumps(expected))
+            binary = Path(directory) / 'java'
+            binary.write_bytes(b'unchanged executable contents')
+            binary.chmod(0o644)
             for header in ('MH_MAGIC_64 ARM64 ALL EXECUTE',
                            'java (architecture arm64):\nMH_MAGIC_64 ARM64 ALL EXECUTE\n'
                            'java (architecture x86_64):\nMH_MAGIC_64 X86_64 ALL EXECUTE'):
                 with self.subTest(header=header), patch.object(mac_store, 'run', side_effect=[
                         header, '', 'Executable=java\n' + plistlib.dumps(expected).decode()]) as command:
                     self.assertTrue(mac_store.sign_nested_macho(['codesign', '--sign', 'identity'],
-                                                               Path('runtime/bin/java'), entitlements))
+                                                               binary, entitlements))
                     self.assertIn(call(['codesign', '--sign', 'identity', '--entitlements', entitlements,
-                                        Path('runtime/bin/java')]), command.call_args_list)
+                                        binary]), command.call_args_list)
+                    self.assertEqual(binary.read_bytes(), b'unchanged executable contents')
+                    if os.name != 'nt':
+                        self.assertEqual(binary.stat().st_mode & 0o111, 0o111)
 
     def test_embedded_library_keeps_library_signing_without_helper_entitlements(self):
         with patch.object(mac_store, 'run', side_effect=['MH_MAGIC_64 ARM64 ALL DYLIB', '']) as command:
@@ -55,12 +85,14 @@ class MacStorePackagingTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             entitlements = Path(directory) / 'helper.plist'
             entitlements.write_bytes(plistlib.dumps(expected))
+            binary = Path(directory) / 'java'
+            binary.write_bytes(b'helper')
             for effective in ({'com.apple.security.app-sandbox': True},
                               {**expected, 'com.apple.security.network.client': True}):
                 with self.subTest(effective=effective), patch.object(mac_store, 'run', side_effect=[
                         'MH_MAGIC_64 ARM64 ALL EXECUTE', '', plistlib.dumps(effective).decode()]):
                     with self.assertRaisesRegex(ValueError, 'inherit only'):
-                        mac_store.sign_nested_macho(['codesign'], Path('runtime/bin/java'), entitlements)
+                        mac_store.sign_nested_macho(['codesign'], binary, entitlements)
 
     @unittest.skipIf(os.name == 'nt', 'POSIX permissions are verified on the Mac signing runner')
     def test_embedded_profile_is_public_but_private_signing_material_stays_private(self):

@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
     inputs:
       preparation_run:
-        description: Successful Mac App Store preparation run ID for this exact commit
+        description: Successful preparation for this commit or its direct signing-tooling-only parent
         required: true
         type: string
       external_folders_verified:
@@ -31,6 +31,8 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
       - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
@@ -59,8 +61,11 @@ jobs:
           if not re.fullmatch(r'[1-9][0-9]*', run_id):
               raise SystemExit('Invalid preparation run ID')
           data = json.loads(subprocess.check_output(['gh', 'api', f'repos/{os.environ["GITHUB_REPOSITORY"]}/actions/runs/{run_id}']))
-          if data['head_sha'] != os.environ['GITHUB_SHA'] or data['conclusion'] != 'success' or data['path'] != '.github/workflows/mac-store-preparation.yml':
-              raise SystemExit('Preparation must be successful and match this exact source commit and workflow')
+          if data['conclusion'] != 'success' or data['path'] != '.github/workflows/mac-store-preparation.yml':
+              raise SystemExit('Preparation must be successful and use the preparation workflow')
+          module.validate_release_revision(data['head_sha'], os.environ['GITHUB_SHA'])
+          with open(os.environ['GITHUB_ENV'], 'a') as output:
+              output.write('PPM_PREPARATION_SOURCE_REVISION=' + data['head_sha'] + '\n')
           PY
       - uses: actions/download-artifact@v8
         with:
