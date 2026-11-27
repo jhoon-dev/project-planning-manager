@@ -193,7 +193,8 @@ class MacStorePackagingTests(unittest.TestCase):
                 ])
 
     def test_upload_requires_exact_source_runtime_and_external_qa(self):
-        good = {'source_revision': 'revision', 'qt_appstore_compliant': True, 'sandbox_container_verified': True}
+        good = {'source_revision': 'revision', 'qt_appstore_compliant': True, 'sandbox_container_verified': True,
+                'mpp_reader_verified': True}
         mac_store.validate_preparation(good, 'revision', False, False)
         mac_store.validate_preparation(good, 'revision', True, True)
         mac_store.validate_preparation(good, 'revision', True, False, testflight=True)
@@ -202,7 +203,7 @@ class MacStorePackagingTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             mac_store.validate_preparation(good, 'revision', True, False)
         for key, value in [('source_revision', 'other'), ('qt_appstore_compliant', False),
-                           ('sandbox_container_verified', False)]:
+                           ('sandbox_container_verified', False), ('mpp_reader_verified', False)]:
             bad = {**good, key: value}
             with self.assertRaises(ValueError):
                 mac_store.validate_preparation(bad, 'revision', True, True)

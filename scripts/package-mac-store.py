@@ -43,6 +43,8 @@ def validate_preparation(status, revision, upload, external_verified, testflight
         raise ValueError('Preparation source or Qt distribution differs from this release')
     if not status.get('sandbox_container_verified'):
         raise ValueError('Signed sandbox container lifecycle has not passed')
+    if not status.get('mpp_reader_verified'):
+        raise ValueError('Prepared app has no verified offline MPP reader')
     if testflight and not upload:
         raise ValueError('TestFlight distribution requires --upload')
     if upload and not testflight and not external_verified:
@@ -208,6 +210,9 @@ def main():
             raise ValueError('Encryption declaration is missing')
         if sorted(p.name for p in (app / 'Contents/MacOS').iterdir()) != ['PPM']:
             raise ValueError('Store app contains an unexpected executable or test probe')
+        from mpp_payload import verify_reader
+        reader = app / 'Contents/Resources/mpp-reader'
+        verify_reader(reader)
         run(['lipo', app / 'Contents/MacOS/PPM', '-verify_arch', 'arm64', 'x86_64'])
         profile_path = app / 'Contents/embedded.provisionprofile'
         install_embedded_profile(profile_path)
@@ -251,10 +256,7 @@ def main():
                         sandbox_helpers_verified += sign_nested_macho(sign, path, helper_entitlements_path)
                 elif path.is_dir() and not path.is_symlink() and path.suffix == '.framework':
                     run([*sign, path])
-            reader = app / 'Contents/Resources/mpp-reader'
-            if reader.exists():
-                from mpp_payload import verify_reader
-                verify_reader(reader, signing=True)
+            verify_reader(reader, signing=True)
             run([*sign, '--entitlements', entitlements_path, app])
             run(['codesign', '--verify', '--deep', '--strict', app])
             signed_output = run(['codesign', '-d', '--entitlements', ':-', app])
@@ -286,6 +288,7 @@ def main():
                       'build': info['CFBundleVersion'], 'signed': True, 'sandbox_container_verified': True,
                       'payload_permissions_verified': True,
                       'sandbox_helpers_verified': sandbox_helpers_verified,
+                      'mpp_reader_verified': True,
                       'external_folder_selection_verified': external_verified,
                       'external_verification_source': 'manual QA attestation' if external_verified else None,
                       'uploaded': args.upload, 'review_submitted': False,

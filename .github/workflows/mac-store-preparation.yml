@@ -89,7 +89,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          app="$PWD/build-mac-store/PPM.app"
+          stage="$PWD/build-mac-store/store-stage"
+          cmake --install build-mac-store --prefix "$stage"
+          app="$stage/PPM.app"
           "$PPM_QT_PREFIX/bin/macdeployqt" "$app" -appstore-compliant -verbose=2
           lipo "$app/Contents/MacOS/PPM" -verify_arch arm64 x86_64
           mkdir -p "$app/Contents/Resources/licenses"
@@ -100,10 +102,14 @@ jobs:
           mkdir -p dist/mac-store-preparation
           ditto -c -k --sequesterRsrc --keepParent "$app" dist/mac-store-preparation/PPM-unsigned-universal.app.zip
           shasum -a 256 dist/mac-store-preparation/PPM-unsigned-universal.app.zip > dist/mac-store-preparation/SHA256SUMS.txt
+          export PPM_STORE_APP="$app"
           python - <<'PY'
-          import json, os, subprocess
+          import json, os, subprocess, sys
           from pathlib import Path
-          data = {'source_revision': subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip(), 'qt_version': '6.8.3', 'qt_appstore_compliant': True, 'architectures': ['arm64', 'x86_64'], 'signed': False, 'sandbox_container_verified': True, 'sandbox_verified': False, 'store_uploadable': False, 'submitted': False, 'purpose': 'Runtime preparation with signed container validation. Distribution credentials and external-folder grant/cancel/bookmark restart verification remain required.'}
+          sys.path.insert(0, 'scripts')
+          from mpp_payload import verify_reader
+          verify_reader(Path(os.environ['PPM_STORE_APP']) / 'Contents/Resources/mpp-reader')
+          data = {'source_revision': subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip(), 'qt_version': '6.8.3', 'qt_appstore_compliant': True, 'architectures': ['arm64', 'x86_64'], 'signed': False, 'sandbox_container_verified': True, 'mpp_reader_verified': True, 'sandbox_verified': False, 'store_uploadable': False, 'submitted': False, 'purpose': 'Runtime preparation with signed container validation. Distribution credentials and external-folder grant/cancel/bookmark restart verification remain required.'}
           Path('dist/mac-store-preparation/status.json').write_text(json.dumps(data, indent=2) + '\n')
           PY
       - name: Preserve unsigned development bundle and native evidence
