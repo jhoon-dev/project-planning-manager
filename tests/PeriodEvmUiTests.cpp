@@ -147,8 +147,13 @@ int main(int argc, char **argv) {
         dialog.findChild<QPushButton *>("refreshReport")->click();
         check(ready(dialog), "refresh after cancellation");
         d.renameTask(0, "changed");
-        QTest::qWait(280);
-        check(!close->isEnabled(), "stale result export enabled");
+        check(QTest::qWaitFor(
+                  [&] {
+                      return !close->isEnabled() && !dialog.findChild<QPushButton *>("exportPdf")->isEnabled() &&
+                             !dialog.findChild<QTableView *>("periodEvm");
+                  },
+                  2000),
+              "stale result export enabled");
         dialog.findChild<QPushButton *>("refreshReport")->click();
         check(ready(dialog), "refresh stale");
         dialog.findChild<QPushButton *>("refreshReport")->click();
