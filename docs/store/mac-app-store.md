@@ -8,7 +8,7 @@
 
 ## 준비와 실제 제출
 
-`Mac App Store preparation`은 Qt 6.8.3 공식 qtbase archive와 고정 SHA-256을 확인하고 `-feature-appstore-compliant` universal arm64/x86_64 Qt를 사용한다. 네이티브 회귀·실제 Mac 화면·별도 서명된 sandbox 검증 앱을 실행한 다음 미서명 `PPM.app` 개발 번들을 만든다. build_number 입력은 Apple CFBundleVersion이며 업로드마다 증가시킨다. 앱 버전은 0.2.0이다.
+`Mac App Store preparation`은 Qt 6.8.3 공식 qtbase archive와 고정 SHA-256을 확인하고 `-feature-appstore-compliant` universal arm64/x86_64 Qt를 사용한다. 네이티브 회귀·실제 Mac 화면·별도 서명된 sandbox 검증 앱을 실행한 다음 미서명 `PPM.app` 개발 번들을 만든다. build_number 입력은 Apple CFBundleVersion이며 업로드마다 증가시킨다. 앱 버전은 Windows와 함께 `packaging/msix/version.txt`를 기준으로 삼는다. Apple의 세 자리 버전 형식에 맞춰 마지막 `.0`을 제외하므로 Windows `1.0.9.0`은 Mac `1.0.9`가 된다. 다음 릴리스에서는 이 파일만 변경하고 Apple 빌드 번호는 별도로 증가시킨다.
 
 MPP 읽기에 필요한 고정 버전 Java 21과 오프라인 reader를 빌드·회귀 전에 준비하고 앱에 포함한다. 서명 단계는 내장 Mach-O 실행 파일에 `com.apple.security.app-sandbox`와 `com.apple.security.inherit`만 부여한 뒤 실제 서명 결과를 대조한다. 라이브러리에는 보조 도구용 entitlement를 넣지 않는다.
 최종 앱은 CMake 설치 규칙으로 별도 staging 디렉터리에 만들며, 앱 내부 reader의 manifest·파일 해시를 준비와 서명 단계에서 각각 확인한다. reader가 누락된 준비 산출물은 서명 단계에서 거절한다.
